@@ -1,7 +1,7 @@
 # reciko
 ### A bash script for recording radiko - Can be naming the program name in files
 与えたキーワードを元に当日中の番組表から番組名と放送時間を取得し、
-自動命名と自動終了を行ってくれるBashスクリプトです。(開始はcron又は手動)
+録音時に自動命名と自動終了を行ってくれるBashスクリプトです。(開始はcron又は手動)
 ##### Usage:
 ```
 ./reciko.sh [Station ID] [Program Keyword] [(none)|dry|dry-wh]
