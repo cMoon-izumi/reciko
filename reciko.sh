@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
 #保存箇所の指定
-recDIR=./
+recDIR=./rec
 
 station=$1 #radkioのAPI参照
 stream_url="https://f-radiko.smartstream.ne.jp/${station}/_definst_/simul-stream.stream/playlist.m3u8"
@@ -82,6 +82,17 @@ function get_metas() {
 
 #録音開始
 function recoding() {
+	if [ -n "${wh_url}" ] ; then
+		if [ -z "${title_meta}" ] || [ -z "${start_meta}" ] || [ -z "${finish_meta}" ] || [ -z "${hlong_meta}" ] ; then
+			curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"番組情報の取得に失敗しました。\"}" ${wh_url}
+			echo "Getting program is failed!"
+			exit 1
+		fi
+
+		title_4post=$(echo ${title_meta} | sed "s/(/\\(/g" | sed "s/)/\\)/g")
+		curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"対象番組:「${title_4post}」\n開始時刻:${start_meta}\n終了時刻:${finish_meta}\n録音時間:${rec_time}\"}" ${wh_url}
+	fi
+
 	ffmpeg \
 	-headers "X-Radiko-AuthToken: ${authToken}" \
 	-i "${stream_url}" \
@@ -90,52 +101,59 @@ function recoding() {
 	-t ${rec_time} \
 	${tmp_recfile}
 
-	if [ "$?"! = 0 ] ; then
-		echo "Recording failed!!"
-		curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Recording failed!!\"}" $wh_url
-		exit 1
-	fi
+	if [ -n "${wh_url}" ] ; then
+		if [ "$?"! = 0 ] ; then
+			echo "Recording failed!!"
+			curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Recording failed!!\"}" $wh_url
+			exit 1
+		fi
 
-	curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Done.\"}" $wh_url
+		curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Done.\"}" $wh_url
+	fi
 
 }
 
 #ファイル名揃えたり、一時ファイル消したり
 function finalization() {
-	if [ ! -d ${recDIR}/${tittle_keyword} ] ; then
-		mkdir -p ${recDIR}/${tittle_keyword}
+	if [ -n "${wh_url}" ] ; then
+		if [ -z "${title_meta}" ] || [ -z "${start_meta}" ] || [ -z "${finish_meta}" ] || [ -z "${hlong_meta}" ] ; then
+			curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"ファイナライズはスキップします。\"}" ${wh_url}
+			echo "Finalize Skiped!"
+			exit 1
+		fi
 	fi
 
-	cp ${tmp_recfile} ${recDIR}/${tittle_keyword}/${title_meta}.m4a
+	if [ ! -d ${recDIR}/${title_keyword} ] ; then
+		mkdir -p ${recDIR}/${title_keyword}
+	fi
 
-	if [ "$?"! = 0 ] ; then
-		echo "finalize failed!! \
-		Recording failed or invalid naming?"
-		curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Finalize failed!!!\"}" $wh_url
-		exit 1
+	if [ -f "${recDIR}/${title_keyword}/${title_meta}.m4a" ]; then
+		cp ${tmp_recfile} "${recDIR}/${title_keyword}/${title_meta}_$(date '+%Y%m%d-%H%M%S').m4a"
+	else
+		cp ${tmp_recfile} "${recDIR}/${title_keyword}/${title_meta}.m4a"
+	fi
+
+	if [ -n "${wh_url}" ] ; then
+		if [ ! "${?}" = 0 ] ; then
+			echo "finalize failed!! \
+			Recording failed or invalid naming?"
+			curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"Finalize failed!!!\"}" $wh_url
+			exit 1
+		fi
 	fi
 
 	rm ${tmp_recfile}
 
 	#各子ディレクトリに'.series.sh'を設置してる場合はやるよん
-	if [ -e ${recDIR}/${PROG_NAME}/.series.sh ];then
-	 cd ${recDIR}/${PROG_NAME}
+	if [ -e ${recDIR}/${title_keyword}/.series.sh ];then
+	 cd ${recDIR}/${title_keyword}
 	 ./.series.sh
 	fi
-}
-
-#録音開始通知
-function wh_start() {
-	title_4post=$(echo ${title_meta} | sed "s/(/\\(/g" | sed "s/)/\\)/g")
-	curl -H "Content-Type: application/json" -X POST -d "{\"content\": \"対象番組:「${title_4post}」\n開始時刻:${start_meta}\n終了時刻:${finish_meta}\n録音時間:${rec_time}\"}" $wh_url
 }
 
 if [ "${3}" = "dry" ] ; then
 	get_auth; get_metas; echo -e "対象番組:「${title_meta}」\n開始時刻:${start_meta}\n終了時刻:${finish_meta}\n録音時間:${rec_time}"
 	exit 0
-elif [ "${3}" = "dry-wh" ] ; then
-	get_auth; get_metas; wh_start;
-	exit 0
 fi
 
-get_auth; get_metas; wh_start; recoding; finalization;
+get_auth; get_metas; recoding; finalization;
